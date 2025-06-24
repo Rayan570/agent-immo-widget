@@ -13,7 +13,7 @@
   let userType = null; // 'acheteur' ou 'vendeur'
   let leadData = {};
   
-  // Récupération des paramètres du script V3.1
+  // Récupération des paramètres du script V3.2
   function getScriptParams() {
     const scripts = document.querySelectorAll('script');
     let currentScript = null;
