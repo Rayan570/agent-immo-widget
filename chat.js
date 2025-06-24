@@ -110,41 +110,39 @@
     }
   };
   
-  // Client Supabase léger
-  class SupabaseClient {
-    constructor(url, key) {
-      this.url = url;
-      this.key = key;
-    }
-    
-    async request(endpoint, options = {}) {
-      const response = await fetch(`${this.url}/rest/v1/${endpoint}`, {
-        ...options,
+  // Client Supabase simplifié et corrigé
+  async function insertLead(leadData) {
+    try {
+      console.log('Tentative d\'insertion du lead:', leadData);
+      
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/leads`, {
+        method: 'POST',
         headers: {
-          'apikey': this.key,
-          'Authorization': `Bearer ${this.key}`,
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
           'Content-Type': 'application/json',
-          'Prefer': 'return=representation',
-          ...options.headers
-        }
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify(leadData)
       });
+      
+      console.log('Statut de la réponse:', response.status);
+      console.log('Headers de la réponse:', [...response.headers.entries()]);
       
       if (!response.ok) {
-        throw new Error(`Erreur ${response.status}: ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('Erreur détaillée:', errorText);
+        throw new Error(`Erreur ${response.status}: ${errorText}`);
       }
       
-      return response.json();
-    }
-    
-    async insert(table, data) {
-      return this.request(table, {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
+      console.log('Lead inséré avec succès');
+      return { success: true };
+      
+    } catch (error) {
+      console.error('Erreur lors de l\'insertion du lead:', error);
+      throw error;
     }
   }
-  
-  const supabase = new SupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   
   // Création de l'interface
   function createChatWidget() {
@@ -537,6 +535,13 @@
   
   async function finishConversation() {
     try {
+      // Validation de l'agent_id
+      if (!agentId) {
+        console.error('Agent ID manquant');
+        addMessage("Merci pour vos informations ! Notre équipe va vous contacter rapidement.");
+        return;
+      }
+      
       // Préparation des données du lead
       const leadToSave = {
         agent_id: agentId,
@@ -549,11 +554,10 @@
         source: 'widget-chat'
       };
       
-      console.log('Tentative de sauvegarde du lead:', leadToSave);
+      console.log('Données à sauvegarder:', leadToSave);
       
-      // Sauvegarde en base de données
-      const result = await supabase.insert('leads', leadToSave);
-      console.log('Lead sauvegardé avec succès:', result);
+      // Sauvegarde en base de données avec la nouvelle fonction
+      await insertLead(leadToSave);
       
       // Message de fin
       setTimeout(() => {
