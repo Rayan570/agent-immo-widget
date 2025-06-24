@@ -1,4 +1,3 @@
-
 (function() {
   'use strict';
   
@@ -546,13 +545,15 @@
         prenom: leadData.prenom,
         email: leadData.email,
         telephone: leadData.telephone,
-        details: JSON.stringify(leadData),
-        source: 'widget-chat',
-        created_at: new Date().toISOString()
+        details: leadData,
+        source: 'widget-chat'
       };
       
-      // Sauvegarde en base (nécessitera une table leads)
-      console.log('Lead à sauvegarder:', leadToSave);
+      console.log('Tentative de sauvegarde du lead:', leadToSave);
+      
+      // Sauvegarde en base de données
+      const result = await supabase.insert('leads', leadToSave);
+      console.log('Lead sauvegardé avec succès:', result);
       
       // Message de fin
       setTimeout(() => {
@@ -564,7 +565,7 @@
       }, 1000);
       
     } catch (error) {
-      console.error('Erreur lors de la sauvegarde:', error);
+      console.error('Erreur lors de la sauvegarde du lead:', error);
       addMessage("Merci pour vos informations ! Notre équipe va vous contacter rapidement.");
     }
   }
