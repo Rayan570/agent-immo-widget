@@ -1,3 +1,4 @@
+
 (function() {
   'use strict';
   
@@ -192,7 +193,7 @@
             { text: "2", value: "2" },
             { text: "3", value: "3" },
             { text: "4", value: "4" },
-            { text: "+", value: "5+" }
+            { text: "5 ou +", value: "5+" }
           ]
         },
         {
@@ -694,7 +695,10 @@
         } else if (userType === 'vendeur') {
           addMessage("Excellent ! Un de nos experts va vous contacter dans les plus brefs délais pour organiser une visite et vous proposer une estimation gratuite. À très bientôt ! 🏡📞");
         } else if (userType === 'locataire') {
-          addMessage("Parfait ! Vous serez alerté(e) dès qu'un bien correspondant à vos critères sera disponible, à bientôt ! 🔑✨");
+          addMessage(`Merci ${leadData.prenom} ! Vos informations ont été enregistrées.`);
+          setTimeout(() => {
+            addMessage("Parfait ! Vous serez alerté(e) dès qu'un bien correspondant à vos critères sera disponible. Bonne recherche ! 🔑✨");
+          }, 1500);
         }
       }, 1000);
       
