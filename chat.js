@@ -12,8 +12,9 @@
   let conversationStep = 0;
   let userType = null; // 'acheteur' ou 'vendeur'
   let leadData = {};
+  let agentProfile = null;
   
-  // Récupération des paramètres du script V3.2
+  // Récupération des paramètres du script V3.1
   function getScriptParams() {
     const scripts = document.querySelectorAll('script');
     let currentScript = null;
@@ -30,16 +31,63 @@
       chatColor = currentScript.getAttribute('data-color') || '#003366';
     }
   }
+
+  // Récupération du profil de l'agent
+  async function fetchAgentProfile() {
+    if (!agentId) return null;
+    
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/profiles?agent_id=eq.${agentId}&select=assistant_name,agency_name`, {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.length > 0 ? data[0] : null;
+      }
+    } catch (error) {
+      console.error('Erreur lors de la récupération du profil:', error);
+    }
+    return null;
+  }
+
+  // Génération du message d'accueil personnalisé
+  function getWelcomeMessage() {
+    let assistantName = "l'assistant virtuel";
+    let agencyName = "Agent-Immo";
+    
+    if (agentProfile) {
+      if (agentProfile.assistant_name) {
+        assistantName = agentProfile.assistant_name;
+      }
+      if (agentProfile.agency_name) {
+        agencyName = agentProfile.agency_name;
+      }
+    }
+    
+    if (agentProfile && agentProfile.assistant_name) {
+      return `Bonjour ! Je suis ${assistantName}, l'assistant virtuel de ${agencyName}. Comment puis-je vous aider aujourd'hui ?`;
+    } else {
+      return `Bonjour ! Je suis l'assistant virtuel de ${agencyName}. Comment puis-je vous aider aujourd'hui ?`;
+    }
+  }
   
   // Scénarios de conversation
   const scenarios = {
     initial: {
-      message: "Bonjour ! 👋 Je suis l'assistant virtuel d'Agent-Immo. Comment puis-je vous aider aujourd'hui ?",
+      get message() {
+        return getWelcomeMessage();
+      },
       options: [
         { text: "Je cherche à acheter un bien", value: "acheteur" },
         { text: "Je souhaite vendre mon bien", value: "vendeur" }
       ]
     },
+    // ... keep existing code (acheteur and vendeur scenarios)
     acheteur: {
       steps: [
         {
@@ -485,7 +533,10 @@
     setTimeout(() => inputs[fields[0].name].focus(), 100);
   }
   
-  function startConversation() {
+  async function startConversation() {
+    // Récupérer le profil de l'agent avant de démarrer la conversation
+    agentProfile = await fetchAgentProfile();
+    
     setTimeout(() => {
       addMessage(scenarios.initial.message);
       addOptions(scenarios.initial.options, handleUserType);
@@ -575,7 +626,7 @@
   }
   
   // Initialisation
-  function init() {
+  async function init() {
     // Attendre que le DOM soit chargé
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
