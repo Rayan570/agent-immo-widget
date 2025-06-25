@@ -1,3 +1,4 @@
+
 (function() {
   'use strict';
   
@@ -10,7 +11,7 @@
   let chatColor = '#003366';
   let isOpen = false;
   let conversationStep = 0;
-  let userType = null; // 'acheteur' ou 'vendeur'
+  let userType = null; // 'acheteur', 'vendeur', ou 'locataire'
   let leadData = {};
   let agentProfile = null;
   
@@ -84,10 +85,10 @@
       },
       options: [
         { text: "Je cherche à acheter un bien", value: "acheteur" },
-        { text: "Je souhaite vendre mon bien", value: "vendeur" }
+        { text: "Je souhaite vendre mon bien", value: "vendeur" },
+        { text: "Je cherche à louer un bien", value: "locataire" }
       ]
     },
-    // ... keep existing code (acheteur and vendeur scenarios)
     acheteur: {
       steps: [
         {
@@ -106,12 +107,14 @@
         },
         {
           message: "Quel est votre budget maximum ?",
-          options: [
-            { text: "Moins de 200k€", value: "moins-200k" },
-            { text: "200k€ - 400k€", value: "200k-400k" },
-            { text: "400k€ - 600k€", value: "400k-600k" },
-            { text: "Plus de 600k€", value: "plus-600k" }
-          ]
+          type: "input",
+          placeholder: "Ex: 350000 €"
+        },
+        {
+          message: "Avez-vous un commentaire ou une précision à ajouter ? (Optionnel)",
+          type: "input",
+          placeholder: "Votre commentaire...",
+          optional: true
         },
         {
           message: "Excellent ! Pour vous proposer les meilleures opportunités, puis-je avoir vos coordonnées ?",
@@ -146,7 +149,56 @@
           placeholder: "Superficie en m²..."
         },
         {
+          message: "Avez-vous un commentaire ou une précision à ajouter ? (Optionnel)",
+          type: "input",
+          placeholder: "Votre commentaire...",
+          optional: true
+        },
+        {
           message: "Parfait ! Un de nos experts va vous contacter pour une estimation gratuite. Puis-je avoir vos coordonnées ?",
+          fields: [
+            { name: "nom", placeholder: "Votre nom", required: true },
+            { name: "prenom", placeholder: "Votre prénom", required: true },
+            { name: "email", placeholder: "Votre email", required: true },
+            { name: "telephone", placeholder: "Votre téléphone", required: true }
+          ]
+        }
+      ]
+    },
+    locataire: {
+      steps: [
+        {
+          message: "Parfait ! 🏠 Quel type de bien souhaitez-vous louer ?",
+          options: [
+            { text: "Appartement", value: "appartement" },
+            { text: "Maison", value: "maison" },
+            { text: "Studio", value: "studio" },
+            { text: "Commercial", value: "commercial" }
+          ]
+        },
+        {
+          message: "Dans quelle ville ou secteur recherchez-vous ?",
+          type: "input",
+          placeholder: "Ville ou code postal..."
+        },
+        {
+          message: "Quel est votre budget de loyer maximum (charges comprises) ?",
+          type: "input",
+          placeholder: "Ex: 1200 €"
+        },
+        {
+          message: "À partir de quand souhaitez-vous emménager ?",
+          type: "input",
+          placeholder: "Ex: Immédiatement, dans 2 mois..."
+        },
+        {
+          message: "Avez-vous un commentaire ou une précision à ajouter ? (Optionnel)",
+          type: "input",
+          placeholder: "Votre commentaire...",
+          optional: true
+        },
+        {
+          message: "Parfait ! Nous allons vous proposer les meilleures locations disponibles. Puis-je avoir vos coordonnées ?",
           fields: [
             { name: "nom", placeholder: "Votre nom", required: true },
             { name: "prenom", placeholder: "Votre prénom", required: true },
@@ -446,7 +498,7 @@
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
   
-  function addInput(placeholder, callback) {
+  function addInput(placeholder, callback, optional = false) {
     const messagesContainer = document.getElementById('agent-immo-messages');
     const inputDiv = document.createElement('div');
     inputDiv.className = 'chat-input-group';
@@ -458,14 +510,18 @@
     
     const button = document.createElement('button');
     button.className = 'chat-submit';
-    button.textContent = 'Envoyer';
+    button.textContent = optional ? 'Continuer' : 'Envoyer';
     
     const handleSubmit = () => {
       const value = input.value.trim();
-      if (value) {
-        addMessage(value, true);
+      if (value || optional) {
+        if (value) {
+          addMessage(value, true);
+        } else if (optional) {
+          addMessage("Aucun commentaire", true);
+        }
         inputDiv.remove();
-        callback(value);
+        callback(value || null);
       }
     };
     
@@ -570,10 +626,16 @@
         });
       } else if (step.type === 'input') {
         addInput(step.placeholder, (value) => {
-          leadData[`step_${conversationStep}`] = value;
+          if (step.optional && !value) {
+            // Étape optionnelle ignorée, pas de sauvegarde
+          } else if (step.optional && value) {
+            leadData.commentaire = value;
+          } else {
+            leadData[`step_${conversationStep}`] = value;
+          }
           conversationStep++;
           processNextStep();
-        });
+        }, step.optional);
       } else if (step.fields) {
         addForm(step.fields, (data) => {
           Object.assign(leadData, data);
@@ -602,7 +664,8 @@
         email: leadData.email,
         telephone: leadData.telephone,
         details: leadData,
-        source: 'widget-chat'
+        source: 'widget-chat',
+        commentaire: leadData.commentaire || null
       };
       
       console.log('Données à sauvegarder:', leadToSave);
@@ -610,12 +673,14 @@
       // Sauvegarde en base de données avec la nouvelle fonction
       await insertLead(leadToSave);
       
-      // Message de fin
+      // Message de fin personnalisé selon le type
       setTimeout(() => {
         if (userType === 'acheteur') {
           addMessage("Parfait ! Nos experts vont analyser votre demande et vous contacter rapidement avec des biens correspondant à vos critères. À très bientôt ! 🏠✨");
-        } else {
+        } else if (userType === 'vendeur') {
           addMessage("Excellent ! Un de nos experts va vous contacter dans les plus brefs délais pour organiser une visite et vous proposer une estimation gratuite. À très bientôt ! 🏡📞");
+        } else if (userType === 'locataire') {
+          addMessage("Parfait ! Nous allons rechercher les meilleures locations correspondant à vos critères et vous contacter rapidement. À très bientôt ! 🏠🔑");
         }
       }, 1000);
       
