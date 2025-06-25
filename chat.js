@@ -14,8 +14,12 @@
   let userType = null; // 'acheteur', 'vendeur', ou 'locataire'
   let leadData = {};
   let agentProfile = null;
+  let agentAvailability = null;
+  let existingAppointments = [];
+  let selectedDate = null;
+  let selectedTime = null;
   
-  // Récupération des paramètres du script V3.1
+  // Récupération des paramètres du script
   function getScriptParams() {
     const scripts = document.querySelectorAll('script');
     let currentScript = null;
@@ -33,12 +37,12 @@
     }
   }
 
-  // Récupération du profil de l'agent
+  // Récupération du profil de l'agent avec ses disponibilités
   async function fetchAgentProfile() {
     if (!agentId) return null;
     
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/profiles?agent_id=eq.${agentId}&select=assistant_name,agency_name`, {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/profiles?agent_id=eq.${agentId}&select=*`, {
         headers: {
           'apikey': SUPABASE_ANON_KEY,
           'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
@@ -48,12 +52,168 @@
       
       if (response.ok) {
         const data = await response.json();
-        return data.length > 0 ? data[0] : null;
+        if (data.length > 0) {
+          agentProfile = data[0];
+          agentAvailability = {
+            working_days: agentProfile.working_days || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+            working_hours: agentProfile.working_hours || {
+              monday: { start: '09:00', end: '18:00' },
+              tuesday: { start: '09:00', end: '18:00' },
+              wednesday: { start: '09:00', end: '18:00' },
+              thursday: { start: '09:00', end: '18:00' },
+              friday: { start: '09:00', end: '18:00' }
+            },
+            default_duration: agentProfile.default_appointment_duration || '1 heure'
+          };
+          return agentProfile;
+        }
       }
     } catch (error) {
       console.error('Erreur lors de la récupération du profil:', error);
     }
     return null;
+  }
+
+  // Récupération des rendez-vous existants
+  async function fetchExistingAppointments() {
+    if (!agentId) return [];
+    
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/appointments?agent_id=eq.${agentId}&select=*`, {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        existingAppointments = data || [];
+        return existingAppointments;
+      }
+    } catch (error) {
+      console.error('Erreur lors de la récupération des rendez-vous:', error);
+    }
+    return [];
+  }
+
+  // Utilitaires de date
+  function getDayName(date) {
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    return days[date.getDay()];
+  }
+
+  function formatDate(date) {
+    return date.toLocaleDateString('fr-FR', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+  }
+
+  function addMinutes(time, minutes) {
+    const [hours, mins] = time.split(':').map(Number);
+    const totalMinutes = hours * 60 + mins + minutes;
+    const newHours = Math.floor(totalMinutes / 60);
+    const newMins = totalMinutes % 60;
+    return `${newHours.toString().padStart(2, '0')}:${newMins.toString().padStart(2, '0')}`;
+  }
+
+  function getDurationInMinutes(duration) {
+    const durations = {
+      '15 minutes': 15,
+      '30 minutes': 30,
+      '45 minutes': 45,
+      '1 heure': 60,
+      '1 heure et 15 minutes': 75,
+      '1 heure et 30 minutes': 90,
+      '1 heure et 45 minutes': 105,
+      '2 heures': 120
+    };
+    return durations[duration] || 60;
+  }
+
+  // Calcul des créneaux disponibles
+  function getAvailableSlots(date) {
+    const dayName = getDayName(date);
+    
+    if (!agentAvailability.working_days.includes(dayName)) {
+      return [];
+    }
+
+    const workingHours = agentAvailability.working_hours[dayName];
+    if (!workingHours) return [];
+
+    const slots = [];
+    const durationMinutes = getDurationInMinutes(agentAvailability.default_duration);
+    
+    const [startHour, startMin] = workingHours.start.split(':').map(Number);
+    const [endHour, endMin] = workingHours.end.split(':').map(Number);
+    
+    let currentTime = startHour * 60 + startMin;
+    const endTime = endHour * 60 + endMin;
+    
+    while (currentTime + durationMinutes <= endTime) {
+      const hours = Math.floor(currentTime / 60);
+      const minutes = currentTime % 60;
+      const timeSlot = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      
+      // Vérifier si ce créneau est libre
+      const dateStr = date.toISOString().split('T')[0];
+      const slotStart = new Date(`${dateStr}T${timeSlot}:00`);
+      const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
+      
+      const isAvailable = !existingAppointments.some(appointment => {
+        const appointmentStart = new Date(appointment.start_time);
+        const appointmentEnd = new Date(appointment.end_time);
+        
+        return (slotStart < appointmentEnd && slotEnd > appointmentStart);
+      });
+      
+      if (isAvailable) {
+        slots.push(timeSlot);
+      }
+      
+      currentTime += 30; // Créneaux toutes les 30 minutes
+    }
+    
+    return slots;
+  }
+
+  // Obtenir les prochains jours disponibles
+  function getAvailableDays() {
+    const availableDays = [];
+    const today = new Date();
+    let currentDate = new Date(today);
+    
+    // Commencer demain
+    currentDate.setDate(currentDate.getDate() + 1);
+    
+    while (availableDays.length < 4) {
+      const dayName = getDayName(currentDate);
+      
+      if (agentAvailability.working_days.includes(dayName)) {
+        const slots = getAvailableSlots(currentDate);
+        if (slots.length > 0) {
+          availableDays.push({
+            date: new Date(currentDate),
+            formatted: formatDate(currentDate),
+            slots: slots
+          });
+        }
+      }
+      
+      currentDate.setDate(currentDate.getDate() + 1);
+      
+      // Éviter une boucle infinie
+      if (currentDate > new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)) {
+        break;
+      }
+    }
+    
+    return availableDays;
   }
 
   // Génération du message d'accueil personnalisé
@@ -225,7 +385,7 @@
     }
   };
   
-  // Client Supabase simplifié et corrigé
+  // Client Supabase pour insertion des leads
   async function insertLead(leadData) {
     try {
       console.log('Tentative d\'insertion du lead:', leadData);
@@ -242,7 +402,6 @@
       });
       
       console.log('Statut de la réponse:', response.status);
-      console.log('Headers de la réponse:', [...response.headers.entries()]);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -255,6 +414,46 @@
       
     } catch (error) {
       console.error('Erreur lors de l\'insertion du lead:', error);
+      throw error;
+    }
+  }
+
+  // Création du rendez-vous
+  async function createAppointment(leadId, startDateTime, endDateTime) {
+    try {
+      const appointmentData = {
+        agent_id: agentId,
+        lead_id: leadId,
+        title: `RDV - ${leadData.prenom} ${leadData.nom}`,
+        description: `Type: ${leadData.type}\nEmail: ${leadData.email}\nTéléphone: ${leadData.telephone}`,
+        type: leadData.type,
+        start_time: startDateTime,
+        end_time: endDateTime,
+        status: 'En attente'
+      };
+
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/appointments`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify(appointmentData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Erreur lors de la création du RDV:', errorText);
+        throw new Error(`Erreur ${response.status}: ${errorText}`);
+      }
+
+      console.log('Rendez-vous créé avec succès');
+      return { success: true };
+
+    } catch (error) {
+      console.error('Erreur lors de la création du rendez-vous:', error);
       throw error;
     }
   }
@@ -387,6 +586,22 @@
         transform: translateY(-1px);
       }
       
+      .chat-option.appointment-action {
+        background: #28a745;
+      }
+      
+      .chat-option.appointment-action:hover {
+        background: #218838;
+      }
+      
+      .chat-option.maybe-later {
+        background: #6c757d;
+      }
+      
+      .chat-option.maybe-later:hover {
+        background: #5a6268;
+      }
+      
       .chat-input-group {
         margin-top: 12px;
       }
@@ -499,7 +714,7 @@
     
     options.forEach(option => {
       const button = document.createElement('button');
-      button.className = 'chat-option';
+      button.className = option.class ? `chat-option ${option.class}` : 'chat-option';
       button.textContent = option.text;
       button.addEventListener('click', () => {
         addMessage(option.text, true);
@@ -626,7 +841,7 @@
     const step = scenario.steps[conversationStep];
     
     if (!step) {
-      finishConversation();
+      proposeAppointment();
       return;
     }
     
@@ -660,8 +875,125 @@
       }
     }, 1000);
   }
+
+  // Proposer un rendez-vous ou terminer
+  function proposeAppointment() {
+    setTimeout(() => {
+      addMessage("Souhaiteriez-vous prendre rendez-vous pour discuter de votre projet ?");
+      addOptions([
+        { text: "Oui, je veux prendre rendez-vous", value: "appointment", class: "appointment-action" },
+        { text: "Peut-être plus tard", value: "later", class: "maybe-later" }
+      ], (choice) => {
+        if (choice === "appointment") {
+          startAppointmentProcess();
+        } else {
+          finishConversationWithoutAppointment();
+        }
+      });
+    }, 1000);
+  }
+
+  // Démarrer le processus de prise de rendez-vous
+  async function startAppointmentProcess() {
+    // Récupérer les rendez-vous existants
+    await fetchExistingAppointments();
+    
+    // Obtenir les jours disponibles
+    const availableDays = getAvailableDays();
+    
+    if (availableDays.length === 0) {
+      setTimeout(() => {
+        addMessage("Désolé, aucun créneau n'est disponible dans les prochains jours. Nos équipes vous contacteront directement pour convenir d'un rendez-vous.");
+        finishConversationWithoutAppointment();
+      }, 1000);
+      return;
+    }
+
+    setTimeout(() => {
+      addMessage("Parfait ! Quel jour vous conviendrait le mieux ?");
+      
+      const dayOptions = availableDays.map(day => ({
+        text: day.formatted,
+        value: day.date.toISOString().split('T')[0]
+      }));
+      
+      addOptions(dayOptions, (selectedDateStr) => {
+        selectedDate = new Date(selectedDateStr);
+        showAvailableTimeSlots();
+      });
+    }, 1000);
+  }
+
+  // Afficher les créneaux horaires disponibles
+  function showAvailableTimeSlots() {
+    const slots = getAvailableSlots(selectedDate);
+    
+    if (slots.length === 0) {
+      setTimeout(() => {
+        addMessage("Désolé, aucun créneau n'est disponible pour cette date. Veuillez choisir un autre jour.");
+        startAppointmentProcess();
+      }, 1000);
+      return;
+    }
+
+    setTimeout(() => {
+      addMessage("Quelle heure vous conviendrait ?");
+      
+      const timeOptions = slots.slice(0, 6).map(time => ({
+        text: time,
+        value: time
+      }));
+      
+      addOptions(timeOptions, (time) => {
+        selectedTime = time;
+        confirmAppointment();
+      });
+    }, 1000);
+  }
+
+  // Confirmer et créer le rendez-vous
+  async function confirmAppointment() {
+    try {
+      // D'abord créer le lead
+      const leadToSave = {
+        agent_id: agentId,
+        type: leadData.type,
+        nom: leadData.nom,
+        prenom: leadData.prenom,
+        email: leadData.email,
+        telephone: leadData.telephone,
+        details: leadData,
+        source: 'widget-chat',
+        commentaire: leadData.commentaire || null
+      };
+
+      await insertLead(leadToSave);
+
+      // Puis créer le rendez-vous
+      const durationMinutes = getDurationInMinutes(agentAvailability.default_duration);
+      const startDateTime = new Date(selectedDate);
+      const [hours, minutes] = selectedTime.split(':').map(Number);
+      startDateTime.setHours(hours, minutes, 0, 0);
+      
+      const endDateTime = new Date(startDateTime.getTime() + durationMinutes * 60000);
+
+      await createAppointment(null, startDateTime.toISOString(), endDateTime.toISOString());
+
+      // Message de confirmation
+      setTimeout(() => {
+        const formattedDate = formatDate(selectedDate);
+        addMessage(`Parfait ! Votre rendez-vous est confirmé pour le ${formattedDate} à ${selectedTime}. Vous recevrez une confirmation par email. À bientôt ! 📅✨`);
+      }, 1000);
+
+    } catch (error) {
+      console.error('Erreur lors de la création du rendez-vous:', error);
+      setTimeout(() => {
+        addMessage("Une erreur s'est produite lors de la prise de rendez-vous. Nos équipes vous contacteront directement pour programmer votre rendez-vous. Merci pour votre compréhension !");
+      }, 1000);
+    }
+  }
   
-  async function finishConversation() {
+  async function finishConversationWithoutAppointment() {
     try {
       // Validation de l'agent_id
       if (!agentId) {
@@ -685,7 +1017,7 @@
       
       console.log('Données à sauvegarder:', leadToSave);
       
-      // Sauvegarde en base de données avec la nouvelle fonction
+      // Sauvegarde en base de données
       await insertLead(leadToSave);
       
       // Message de fin personnalisé selon le type
