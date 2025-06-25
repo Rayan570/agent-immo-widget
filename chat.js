@@ -1,4 +1,3 @@
-
 (function() {
   'use strict';
   
@@ -185,6 +184,21 @@
           message: "Quel est votre budget de loyer maximum (charges comprises) ?",
           type: "input",
           placeholder: "Ex: 1200 €"
+        },
+        {
+          message: "Combien de chambres souhaitez-vous au minimum ?",
+          options: [
+            { text: "1", value: "1" },
+            { text: "2", value: "2" },
+            { text: "3", value: "3" },
+            { text: "4", value: "4" },
+            { text: "+", value: "5+" }
+          ]
+        },
+        {
+          message: "Quelle est la superficie en m² minimum que vous recherchez ?",
+          type: "input",
+          placeholder: "Ex: 40 m²"
         },
         {
           message: "À partir de quand souhaitez-vous emménager ?",
@@ -680,7 +694,7 @@
         } else if (userType === 'vendeur') {
           addMessage("Excellent ! Un de nos experts va vous contacter dans les plus brefs délais pour organiser une visite et vous proposer une estimation gratuite. À très bientôt ! 🏡📞");
         } else if (userType === 'locataire') {
-          addMessage("Parfait ! Nous allons rechercher les meilleures locations correspondant à vos critères et vous contacter rapidement. À très bientôt ! 🏠🔑");
+          addMessage("Parfait ! Vous serez alerté(e) dès qu'un bien correspondant à vos critères sera disponible, à bientôt ! 🔑✨");
         }
       }, 1000);
       
