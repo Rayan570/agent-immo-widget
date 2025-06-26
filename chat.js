@@ -1,4 +1,3 @@
-
 (function() {
   'use strict';
   
@@ -18,6 +17,7 @@
   let existingAppointments = [];
   let selectedDate = null;
   let selectedTime = null;
+  let hasReference = false; // Nouvelle variable pour gérer la référence
   
   // Récupération des paramètres du script
   function getScriptParams() {
@@ -237,7 +237,7 @@
     }
   }
   
-  // Scénarios de conversation
+  // Scénarios de conversation modifiés
   const scenarios = {
     initial: {
       get message() {
@@ -251,6 +251,19 @@
     },
     acheteur: {
       steps: [
+        {
+          message: "Avez-vous une référence d'annonce précise qui vous intéresse ?",
+          options: [
+            { text: "Oui", value: "yes" },
+            { text: "Non", value: "no" }
+          ]
+        },
+        {
+          message: "Parfait ! Quelle est la référence de l'annonce ?",
+          type: "input",
+          placeholder: "Ex: REF-12345",
+          condition: "hasReference"
+        },
         {
           message: "Parfait ! 🏠 Quel type de bien recherchez-vous ?",
           options: [
@@ -327,6 +340,19 @@
     },
     locataire: {
       steps: [
+        {
+          message: "Avez-vous une référence d'annonce précise qui vous intéresse ?",
+          options: [
+            { text: "Oui", value: "yes" },
+            { text: "Non", value: "no" }
+          ]
+        },
+        {
+          message: "Parfait ! Quelle est la référence de l'annonce ?",
+          type: "input",
+          placeholder: "Ex: REF-12345",
+          condition: "hasReference"
+        },
         {
           message: "Parfait ! 🏠 Quel type de bien souhaitez-vous louer ?",
           options: [
@@ -833,6 +859,7 @@
     userType = type;
     leadData.type = type;
     conversationStep = 0;
+    hasReference = false; // Réinitialiser la variable
     processNextStep();
   }
   
@@ -844,19 +871,36 @@
       proposeAppointment();
       return;
     }
+
+    // Ignorer l'étape de référence si elle n'est pas nécessaire
+    if (step.condition === "hasReference" && !hasReference) {
+      conversationStep++;
+      processNextStep();
+      return;
+    }
     
     setTimeout(() => {
       addMessage(step.message);
       
       if (step.options) {
         addOptions(step.options, (value) => {
-          leadData[`step_${conversationStep}`] = value;
+          // Gérer la réponse pour la référence d'annonce
+          if (conversationStep === 0 && (userType === 'acheteur' || userType === 'locataire')) {
+            if (value === 'yes') {
+              hasReference = true;
+            }
+          } else {
+            leadData[`step_${conversationStep}`] = value;
+          }
           conversationStep++;
           processNextStep();
         });
       } else if (step.type === 'input') {
         addInput(step.placeholder, (value) => {
-          if (step.optional && !value) {
+          if (step.condition === "hasReference") {
+            // C'est la saisie de la référence
+            leadData.reference_annonce = value;
+          } else if (step.optional && !value) {
             // Étape optionnelle ignorée, pas de sauvegarde
           } else if (step.optional && value) {
             leadData.commentaire = value;
@@ -964,6 +1008,7 @@
         telephone: leadData.telephone,
         details: leadData,
         source: 'widget-chat',
+        reference_annonce: leadData.reference_annonce || null,
         commentaire: leadData.commentaire || null
       };
 
@@ -1012,6 +1057,7 @@
         telephone: leadData.telephone,
         details: leadData,
         source: 'widget-chat',
+        reference_annonce: leadData.reference_annonce || null,
         commentaire: leadData.commentaire || null
       };
       
